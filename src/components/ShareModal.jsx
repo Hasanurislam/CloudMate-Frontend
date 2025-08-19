@@ -2,13 +2,12 @@ import React, { useState } from 'react';
 import { FiX, FiLink, FiUsers, FiCopy } from 'react-icons/fi';
 import { supabase } from '../supabase';
 import toast from 'react-hot-toast';
+import newRequest from '../utils/newRequest'; // 1. Import newRequest
 
 export default function ShareModal({ item, onClose }) {
     const [email, setEmail] = useState('');
     const [role, setRole] = useState('viewer');
     const [publicLink, setPublicLink] = useState('');
-    const [message, setMessage] = useState('');
-    const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [linkLoading, setLinkLoading] = useState(false);
 
@@ -16,28 +15,19 @@ export default function ShareModal({ item, onClose }) {
 
     const handleShareWithUser = async (e) => {
         e.preventDefault();
-        setMessage('');
-        setError('');
         setLoading(true);
-
         const { data: { session } } = await supabase.auth.getSession();
         const itemType = item.type;
 
         try {
-            const response = await fetch(`http://localhost:8080/files/share`, { 
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`,
-                },
-                body: JSON.stringify({ itemId: item.id, itemType, email, role }),
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'An unknown error occurred.');
-            toast.success(data.message);
+            const response = await newRequest.post(`/files/share`, 
+                { itemId: item.id, itemType, email, role },
+                { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+            );
+            toast.success(response.data.message);
             setEmail('');
         } catch (err) {
-            toast.error(`Error: ${err.message}`);
+            toast.error(`Error: ${err.response?.data?.error || err.message}`);
         } finally {
             setLoading(false);
         }
@@ -55,14 +45,12 @@ export default function ShareModal({ item, onClose }) {
         }
 
         try {
-            const response = await fetch(`http://localhost:8080/files/${item.id}/public-link`, {
+            const response = await newRequest.get(`/files/${item.id}/public-link`, {
                 headers: { 'Authorization': `Bearer ${session.access_token}` },
             });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error);
-            setPublicLink(data.publicUrl);
+            setPublicLink(response.data.publicUrl);
         } catch (err) {
-            toast.error(`Error: ${err.message}`);
+            toast.error(`Error: ${err.response?.data?.error || err.message}`);
         } finally {
             setLinkLoading(false);
         }

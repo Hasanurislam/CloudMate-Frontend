@@ -36,6 +36,7 @@ function App() {
         }
       }
     );
+    console.log("API URL 👉", import.meta.env.VITE_API_URL);
 
     return () => subscription.unsubscribe();
   }, [navigate, location.pathname]);
@@ -54,7 +55,7 @@ function App() {
           },
         }}
       />
-      
+
     <Routes>
       <Route path="/signup" element={<Signup />} />
       <Route path="/login" element={<Login />} />
