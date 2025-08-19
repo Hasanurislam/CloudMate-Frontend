@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../supabase';
 import { useDropzone } from 'react-dropzone';
+import toast from 'react-hot-toast';
+import newRequest from '../utils/newRequest'; // 1. Import your Axios instance
 
 // Import components
 import Sidebar from '../components/Sidebar';
@@ -13,7 +15,6 @@ import EmptyStateDropzone from '../components/EmptyStateDropzone';
 import NewFolderModal from '../components/NewFolderModal';
 import FilePreviewModal from '../components/FilePreviewModal';
 import ShareModal from '../components/ShareModal';
-import toast from 'react-hot-toast';
 
 // This modal is for confirming deletion
 const ConfirmDeleteModal = ({ item, onClose, onDelete }) => {
@@ -51,16 +52,11 @@ export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Folder State - Moved to the top
+  // Folder State
   const [currentFolderId, setCurrentFolderId] = useState(null);
   const [breadcrumbs, setBreadcrumbs] = useState([{ id: null, name: 'My Drive' }]);
   
   const location = useLocation();
-
-  const handleNewFolderClick = () => {
-    setNewFolderName("Untitled folder");
-    setShowNewFolderModal(true);
-  };
 
   const fetchContents = useCallback(async (folderId, query) => {
     setLoading(true);
@@ -68,22 +64,17 @@ export default function Dashboard() {
     if (!session) { setLoading(false); return; }
     
     try {
-        let url;
+        let response;
+        const config = { headers: { 'Authorization': `Bearer ${session.access_token}` } };
+
         if (query) {
-            url = new URL('http://localhost:8080/files/search');
-            url.searchParams.append('q', query);
+            response = await newRequest.get(`/files/search?q=${query}`, config);
         } else {
-            url = new URL('http://localhost:8080/files/contents');
-            if (folderId) url.searchParams.append('folderId', folderId);
             const [sortBy, sortOrder] = sortOption.split('-');
-            url.searchParams.append('sortBy', sortBy);
-            url.searchParams.append('sortOrder', sortOrder);
+            response = await newRequest.get(`/files/contents?sortBy=${sortBy}&sortOrder=${sortOrder}${folderId ? `&folderId=${folderId}` : ''}`, config);
         }
         
-        const response = await fetch(url, { headers: { 'Authorization': `Bearer ${session.access_token}` } });
-        if (!response.ok) throw new Error('Failed to fetch data.');
-        const data = await response.json();
-        setItems(data);
+        setItems(response.data);
     } catch (error) { 
         console.error("Error fetching data:", error); 
         toast.error("Could not load files.");
@@ -91,15 +82,6 @@ export default function Dashboard() {
     } 
     finally { setLoading(false); }
   }, [sortOption]);
-
-  useEffect(() => {
-    const initialFolder = location.state?.initialFolder;
-    if (initialFolder) {
-        setCurrentFolderId(initialFolder.id);
-        setBreadcrumbs([ { id: null, name: 'My Drive' }, { id: initialFolder.id, name: initialFolder.name } ]);
-        window.history.replaceState({}, document.title)
-    }
-  }, [location.state]);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -120,72 +102,43 @@ export default function Dashboard() {
   const handleRename = async (item, newName) => {
     if (!newName.trim() || newName === item.name) return;
     const { data: { session } } = await supabase.auth.getSession();
-    const itemType = item.type; // Use the reliable 'type' property
+    const itemType = item.type;
     try {
-        const response = await fetch(`http://localhost:8080/files/${itemType}/${item.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-            body: JSON.stringify({ name: newName }),
+        await newRequest.patch(`/files/${itemType}/${item.id}`, { name: newName }, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
         });
-        if (!response.ok) throw new Error('Rename failed');
         toast.success(`Renamed to "${newName}"`);
         fetchContents(currentFolderId, searchTerm);
     } catch (error) {
-         toast.error(`Error: ${error.message}`);
+        toast.error(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
 
-    const handleSoftDelete = async (item) => {
+  const handleSoftDelete = async (item) => {
     const { data: { session } } = await supabase.auth.getSession();
     const itemType = item.type;
     try {
-        const response = await fetch(`http://localhost:8080/files/${itemType}/${item.id}/trash`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${session.access_token}` },
+        await newRequest.post(`/files/${itemType}/${item.id}/trash`, {}, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
         });
-        if (!response.ok) throw new Error('Move to trash failed');
         setItemToDelete(null);
         toast.success(`"${item.name}" moved to trash.`);
         fetchContents(currentFolderId, searchTerm);
     } catch (error) {
-        toast.error(`Error: ${error.message}`);
+        toast.error(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
 
-  const handleItemClick = (item) => { 
-    if (searchTerm) setSearchTerm('');
-    if (item.type === 'folder') { 
-        setCurrentFolderId(item.id); 
-        setBreadcrumbs(prev => [...prev, { id: item.id, name: item.name }]); 
-    } else { 
-        handleFileDownload(item); 
-    } 
-  };
-  
-  const handleBreadcrumbClick = (index) => { 
-    if (searchTerm) setSearchTerm('');
-    const newBreadcrumbs = breadcrumbs.slice(0, index + 1); 
-    setBreadcrumbs(newBreadcrumbs); 
-    setCurrentFolderId(newBreadcrumbs[newBreadcrumbs.length - 1].id); 
-  };
-
-    const handleFileDownload = async (file) => {
+  const handleFileDownload = async (file) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("You need to be logged in."); return; }
     try {
-        const response = await fetch('http://localhost:8080/files/signed-url', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-            body: JSON.stringify({ path: file.storage_path }),
+        const response = await newRequest.post('/files/signed-url', { path: file.storage_path }, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
         });
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error || 'Could not get signed URL.');
-        }
-        const { signedUrl } = await response.json();
-        setPreviewFile({ url: signedUrl, type: file.file_type, name: file.name });
+        setPreviewFile({ url: response.data.signedUrl, type: file.file_type, name: file.name });
     } catch (error) {
-        toast.error(`Could not open file: ${error.message}`);
+        toast.error(`Could not open file: ${error.response?.data?.error || error.message}`);
     }
   };
   
@@ -193,20 +146,17 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newFolderName.trim()) return;
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { alert("You must be logged in."); return; }
+    if (!session) { toast.error("You must be logged in."); return; }
     try {
-        const response = await fetch('http://localhost:8080/files/folders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-            body: JSON.stringify({ name: newFolderName, parentFolderId: currentFolderId }),
+        await newRequest.post('/files/folders', { name: newFolderName, parentFolderId: currentFolderId }, {
+            headers: { 'Authorization': `Bearer ${session.access_token}` }
         });
-        if (!response.ok) throw new Error('Failed to create folder.');
         setShowNewFolderModal(false);
         setNewFolderName('');
         toast.success(`Folder "${newFolderName}" created.`);
         fetchContents(currentFolderId, searchTerm);
     } catch (error) {
-        toast.error(`Error: ${error.message}`);
+        toast.error(`Error: ${error.response?.data?.error || error.message}`);
     }
   };
   
@@ -224,10 +174,11 @@ export default function Dashboard() {
       const formData = new FormData();
       formData.append('file', file);
       if (currentFolderId) formData.append('folderId', currentFolderId);
-      return fetch('http://localhost:8080/files/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${session.access_token}` },
-        body: formData,
+      return newRequest.post('/files/upload', formData, {
+        headers: { 
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'multipart/form-data',
+        },
       });
     });
     
@@ -242,17 +193,30 @@ export default function Dashboard() {
     }
   }, [currentFolderId, fetchContents, searchTerm]);
 
-  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({ 
-    onDrop, 
-    noClick: true, 
-    noKeyboard: true 
-  });
-
-
+  const handleNewFolderClick = () => {
+    setNewFolderName("Untitled folder");
+    setShowNewFolderModal(true);
+  };
+  const handleItemClick = (item) => { 
+    if (searchTerm) setSearchTerm('');
+    if (item.type === 'folder') { 
+        setCurrentFolderId(item.id); 
+        setBreadcrumbs(prev => [...prev, { id: item.id, name: item.name }]); 
+    } else { 
+        handleFileDownload(item); 
+    } 
+  };
+  const handleBreadcrumbClick = (index) => { 
+    if (searchTerm) setSearchTerm('');
+    const newBreadcrumbs = breadcrumbs.slice(0, index + 1); 
+    setBreadcrumbs(newBreadcrumbs); 
+    setCurrentFolderId(newBreadcrumbs[newBreadcrumbs.length - 1].id); 
+  };
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({ onDrop, noClick: true, noKeyboard: true });
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
   return (
-    <div className="flex h-screen bg-gray-200 font-sans">
+    <div className="flex h-screen bg-gray-100 font-sans">
       <Sidebar onLogout={handleLogout} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
       <main className="flex-1 flex flex-col overflow-hidden">
         <Header 
