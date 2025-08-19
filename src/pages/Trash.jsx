@@ -4,7 +4,8 @@ import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 import { FileIcon, formatBytes } from '../utils/helpers.jsx';
 import { FiFolder, FiRotateCcw, FiTrash2 } from 'react-icons/fi';
-import toast from 'react-hot-toast'; // 1. Import toast
+import toast from 'react-hot-toast';
+import newRequest from '../utils/newRequest'; // 1. Import newRequest
 
 // Confirmation Modal Component
 const ConfirmDeleteModal = ({ item, onClose, onDelete }) => {
@@ -47,12 +48,10 @@ export default function Trash() {
         if (!session) { setLoading(false); return; }
 
         try {
-            const response = await fetch('http://localhost:8080/files/trash', {
+            const response = await newRequest.get('/files/trash', {
                 headers: { 'Authorization': `Bearer ${session.access_token}` },
             });
-            if (!response.ok) throw new Error('Failed to fetch trash.');
-            const data = await response.json();
-            setTrashedItems(data);
+            setTrashedItems(response.data);
         } catch (error) {
             console.error("Error fetching trash:", error);
             toast.error("Could not load trash items.");
@@ -70,15 +69,13 @@ export default function Trash() {
         const itemType = item.type;
 
         try {
-            const response = await fetch(`http://localhost:8080/files/${itemType}/${item.id}/restore`, {
-                method: 'POST',
+            await newRequest.post(`/files/${itemType}/${item.id}/restore`, {}, {
                 headers: { 'Authorization': `Bearer ${session.access_token}` },
             });
-            if (!response.ok) throw new Error('Restore failed');
             toast.success(`"${item.name}" restored successfully.`);
             fetchTrashedItems();
         } catch (error) {
-            toast.error(`Error: ${error.message}`);
+            toast.error(`Error: ${error.response?.data?.error || error.message}`);
         }
     };
 
@@ -87,26 +84,15 @@ export default function Trash() {
         const itemType = item.type;
 
         try {
-            const response = await fetch(`http://localhost:8080/files/${itemType}/${item.id}/permanent`, {
-                method: 'DELETE',
+            await newRequest.delete(`/files/${itemType}/${item.id}/permanent`, {
                 headers: { 'Authorization': `Bearer ${session.access_token}` },
             });
-            
-            if (!response.ok) {
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.indexOf("application/json") !== -1) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Permanent delete failed');
-                } else {
-                    throw new Error('Server error. The folder may not be empty.');
-                }
-            }
             setItemToDelete(null);
             toast.success(`"${item.name}" permanently deleted.`);
             fetchTrashedItems();
         } catch (error) {
             console.error("Permanent delete error:", error);
-            toast.error(`Error: ${error.message}`);
+            toast.error(`Error: ${error.response?.data?.error || error.message}`);
         }
     };
 

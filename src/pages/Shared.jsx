@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 import Sidebar from '../components/Sidebar';
-import Header from '../components/Header'; // We'll use a simplified version of the header
+import Header from '../components/Header';
 import { FileIcon, formatBytes } from '../utils/helpers.jsx';
 import { FiFolder, FiUsers, FiX, FiPrinter, FiDownload, FiShare2 } from 'react-icons/fi';
+import newRequest from '../utils/newRequest'; // 1. Import newRequest
+import toast from 'react-hot-toast';
 
 // --- File Preview Modal (Copied from Dashboard) ---
 const FilePreviewModal = ({ file, onClose }) => {
@@ -24,7 +26,7 @@ const FilePreviewModal = ({ file, onClose }) => {
             URL.revokeObjectURL(link.href);
         } catch (error) {
             console.error('Download failed:', error);
-            alert('Could not download the file.');
+            toast.error('Could not download the file.');
         }
     };
 
@@ -66,14 +68,13 @@ export default function Shared() {
         if (!session) { setLoading(false); return; }
 
         try {
-            const response = await fetch('http://localhost:8080/files/shared-with-me', {
+            const response = await newRequest.get('/files/shared-with-me', {
                 headers: { 'Authorization': `Bearer ${session.access_token}` },
             });
-            if (!response.ok) throw new Error('Failed to fetch shared files.');
-            const data = await response.json();
-            setSharedItems(data);
+            setSharedItems(response.data);
         } catch (error) {
             console.error("Error fetching shared files:", error);
+            toast.error("Could not load shared files.");
         } finally {
             setLoading(false);
         }
@@ -90,20 +91,17 @@ export default function Shared() {
         }
 
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) { alert("You need to be logged in."); return; }
+        if (!session) { toast.error("You need to be logged in."); return; }
 
         try {
-            const response = await fetch('http://localhost:8080/files/signed-url', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
-                body: JSON.stringify({ path: item.storage_path }),
-            });
-            if (!response.ok) throw new Error('Could not get signed URL.');
-            const { signedUrl } = await response.json();
-            setPreviewFile({ url: signedUrl, type: item.file_type, name: item.name });
+            const response = await newRequest.post('/files/signed-url', 
+                { path: item.storage_path },
+                { headers: { 'Authorization': `Bearer ${session.access_token}` } }
+            );
+            setPreviewFile({ url: response.data.signedUrl, type: item.file_type, name: item.name });
         } catch (error) {
             console.error("Error getting signed URL:", error);
-            alert("Could not open file.");
+            toast.error("Could not open file.");
         }
     };
 
