@@ -74,7 +74,8 @@ export default function Dashboard() {
             response = await newRequest.get(`/files/contents?sortBy=${sortBy}&sortOrder=${sortOrder}${folderId ? `&folderId=${folderId}` : ''}`, config);
         }
         
-        setItems(response.data);
+        // This is the fix: Ensure the data is always an array
+        setItems(Array.isArray(response.data) ? response.data : []);
     } catch (error) { 
         console.error("Error fetching data:", error); 
         toast.error("Could not load files.");
@@ -82,6 +83,16 @@ export default function Dashboard() {
     } 
     finally { setLoading(false); }
   }, [sortOption]);
+
+  // This useEffect handles navigation from the Shared page
+  useEffect(() => {
+    const initialFolder = location.state?.initialFolder;
+    if (initialFolder) {
+        setCurrentFolderId(initialFolder.id);
+        setBreadcrumbs([ { id: null, name: 'My Drive' }, { id: initialFolder.id, name: initialFolder.name } ]);
+        window.history.replaceState({}, document.title)
+    }
+  }, [location.state]);
 
   useEffect(() => {
     const fetchUserData = async () => {
